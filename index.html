@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pro Linux Web Terminal</title>
+
+<style>
+:root{
+    --bg:#000;
+    --term-bg:rgba(10,10,10,0.92);
+    --text:#d4d4d4;
+    --green:#4af626;
+    --header:#1a1a1a;
+}
+
+body{
+    margin:0;
+    height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    background:var(--bg);
+    font-family:Segoe UI,sans-serif;
+    overflow:hidden;
+}
+
+/* MATRIX */
+#matrix-canvas{
+    position:fixed;
+    inset:0;
+    z-index:-1;
+    opacity:.4;
+}
+
+/* TERMINAL CONTAINER */
+.terminal-container{
+    position:relative;
+    width:85%;
+    height:75vh;
+    border-radius:14px;
+    overflow:hidden;
+}
+
+/* RUNNING BORDER */
+.terminal-container::before{
+    content:"";
+    position:absolute;
+    inset:-3px;
+    background:conic-gradient(
+        transparent,
+        var(--green),
+        transparent
+    );
+    animation:spin 15s linear infinite;
+    will-change: transform; 
+}
+
+.terminal-container::after{
+    content:"";
+    position:absolute;
+    inset:3px;
+    background:#000;
+    border-radius:12px;
+    z-index:1;
+}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* TERMINAL WINDOW */
+.terminal-window{
+    position:absolute;
+    inset:5px;
+    background:var(--term-bg);
+    border-radius:10px;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    z-index:2;
+}
+
+/* HEADER */
+.terminal-header{
+    background:var(--header);
+    padding:12px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+}
+
+.buttons{display:flex;gap:8px}
+.dot{width:12px;height:12px;border-radius:50%}
+.red{background:#ff5f56}
+.yellow{background:#ffbd2e}
+.green{background:#27c93f}
+
+.loading .red{animation:blink .6s infinite .1s}
+.loading .yellow{animation:blink .6s infinite .3s}
+.loading .green{animation:blink .6s infinite .5s}
+
+@keyframes blink{
+    0%,100%{opacity:1}
+    50%{opacity:.3}
+}
+
+.title{color:#888;font-size:13px;font-family:monospace}
+
+/* BODY */
+#terminal-body{
+    padding:20px;
+    flex:1;
+    overflow-y:auto;
+    color:var(--text);
+    font-family:Consolas,monospace;
+    font-size:16px;
+
+    /* Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: #000 #000;
+}
+
+/* Chrome / Edge / Safari */
+#terminal-body::-webkit-scrollbar{
+    width:10px;
+    background:#000;
+}
+
+#terminal-body::-webkit-scrollbar-track{
+    background:#000;
+}
+
+#terminal-body::-webkit-scrollbar-thumb{
+    background:#000;
+    border-radius:6px;
+    border:2px solid #000;
+}
+
+#terminal-body::-webkit-scrollbar-thumb:hover{
+    background:#000;
+}
+
+
+/* INPUT */
+.input-line{
+    display:flex;
+    align-items:center;
+    margin-top:6px;
+}
+
+.prompt{
+    color:var(--green);
+    margin-right:10px;
+    font-weight:bold;
+}
+
+input{
+    background:transparent;
+    border:none;
+    outline:none;
+    color:#fff;
+    flex:1;
+    caret-color:#fff;
+
+    /* 🔥 FIX: same font as terminal output */
+    font-family:Consolas, monospace;
+    font-size:16px;
+}
+
+
+.cmd-output{
+    margin-bottom:10px;
+    white-space:pre-wrap;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="matrix-canvas"></canvas>
+
+<div class="terminal-container">
+<div class="terminal-window">
+
+<div class="terminal-header">
+    <div class="buttons" id="status-dots">
+        <div class="dot red"></div>
+        <div class="dot yellow"></div>
+        <div class="dot green"></div>
+    </div>
+    <div class="title">Rohan@linux-terminal</div>
+    <div style="width:50px"></div>
+</div>
+
+<div id="terminal-body">
+    <div id="terminal-output">
+        <div style="color:#ffffff;">Welcome to Linux Terminal</div> 
+        <div style="color:#ffffff;">Type 'help' to see available commands </div> 
+
+    </div>
+
+    <div class="input-line" id="input-container">
+        <span class="prompt" id="prompt-text">user@linux:~$</span>
+        <input id="cmd-input" autocomplete="off" spellcheck="false" autofocus>
+    </div>
+</div>
+
+</div>
+</div>
+
+<script>
+/* MATRIX */
+const canvas=document.getElementById('matrix-canvas');
+const ctx=canvas.getContext('2d');
+function resize(){canvas.width=innerWidth;canvas.height=innerHeight}
+resize();addEventListener('resize',resize);
+
+const drops=Array(Math.floor(canvas.width/18)).fill(1);
+setInterval(()=>{
+    ctx.fillStyle="rgba(0,0,0,0.1)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.font="bold 18px monospace";
+    for(let i=0;i<drops.length;i++){
+        ctx.fillStyle="#006600";
+        ctx.fillText(Math.random()>0.5?"0":"1",i*18,drops[i]*18);
+        if(drops[i]*18>canvas.height&&Math.random()>0.975)drops[i]=0;
+        drops[i]++;
+    }
+},50);
+
+/* TERMINAL LOGIC */
+const input=document.getElementById('cmd-input');
+const inputContainer=document.getElementById('input-container');
+const output=document.getElementById('terminal-output');
+const body=document.getElementById('terminal-body');
+const prompt=document.getElementById('prompt-text');
+const dots=document.getElementById('status-dots');
+
+input.addEventListener('keydown', async e=>{
+    if(e.key!=='Enter')return;
+
+    const cmd=input.value.trim();
+    if(!cmd)return;
+
+    // show typed command
+    output.innerHTML+=`<div><span class="prompt">${prompt.innerText}</span>${cmd}</div>`;
+    input.value='';
+
+    // 🔒 LOCK INPUT
+    inputContainer.style.display='none';
+    dots.classList.add('loading');
+
+    // clear command (instant)
+    if(cmd==='clear'){
+        output.innerHTML='';
+        dots.classList.remove('loading');
+        inputContainer.style.display='flex';
+        input.focus();
+        return;
+    }
+
+    try{
+        const res=await fetch('http://127.0.0.1:8000/execute',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({command:cmd})
+        });
+
+        const data=await res.json();
+
+        if(data.output){
+            const o=document.createElement('div');
+            o.className='cmd-output';
+            o.style.color=data.status==='error'?'#ff5f56':'var(--text)';
+            o.textContent=data.output;
+            output.appendChild(o);
+        }
+
+        if(data.cwd){
+            const p=data.cwd.split('/');
+            prompt.innerText=`user@linux:${p.pop()||'~'}$`;
+        }
+    }catch{
+        output.innerHTML+=`<div style="color:#ff5f56;">Connection refused</div>`;
+    }finally{
+        // 🔓 UNLOCK INPUT (ONLY AFTER OUTPUT)
+        dots.classList.remove('loading');
+        inputContainer.style.display='flex';
+        input.focus();
+        body.scrollTop=body.scrollHeight;
+    }
+});
+</script>
+
+</body>
+</html> 
